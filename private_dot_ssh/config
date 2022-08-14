@@ -1,0 +1,9 @@
+Host n.gitlab.com
+    Hostname gitlab.com
+    PreferredAuthentications publickey
+    IdentityFile ~/.ssh/nsketch
+Host k.gitlab.com
+    Hostname gitlab.com
+    PreferredAuthentications publickey
+    IdentityFile ~/.ssh/id_ed25519
+    
