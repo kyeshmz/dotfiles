@@ -1,0 +1,4 @@
+# pack-refs with: peeled fully-peeled sorted 
+769b78e6634261f26ec8e0ba8544b41b59c73296 refs/remotes/origin/fix-travis
+c9dc75361d5acf24928b80026a55dbc18005ebf3 refs/remotes/origin/master
+b544ac9e512b1d95ad80d432b47b181be40199c0 refs/tags/v1.0

@@ -1,0 +1,55 @@
+{
+  "name": "@nodenv/node-build",
+  "version": "4.9.87",
+  "description": "Install NodeJS versions",
+  "homepage": "https://github.com/nodenv/node-build#readme",
+  "license": "MIT",
+  "contributors": [
+    "Jason Karns <jason@karns.name> (http://jason.karns.name)",
+    "Sam Stephenson <sstephenson@gmail.com> (http://sstephenson.us)",
+    "Will McKenzie <willmckenzie@oinutter.co.uk> (http://www.oinutter.co.uk)"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nodenv/node-build.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nodenv/node-build/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "directories": {
+    "bin": "bin",
+    "test": "test"
+  },
+  "files": [
+    "bin",
+    "etc",
+    "share"
+  ],
+  "scripts": {
+    "clean": "git clean -f -- share",
+    "start": "bin/node-build",
+    "scrape-definitions": "nodenv-update-version-defs --nodejs --chakracore --graal -d share/node-build/",
+    "commit-definitions": "npm explore @nodenv/node-build-update-defs -- npm run defs:commit --",
+    "submit-definitions": "npm explore @nodenv/node-build-update-defs -- npm run defs:submit --",
+    "test": "bats ${CI:+--tap} test",
+    "lint": "git ls-files bin script **/*.*sh | xargs shellcheck",
+    "lint:lts": "npm explore @nodenv/node-build-update-defs -- npm run defs:lint:lts -- \"$PWD/share/node-build\"",
+    "lint:checksums": "npm explore @nodenv/node-build-update-defs -- npm run defs:verify --",
+    "preversion": "script/preversion",
+    "version": "script/version-sync",
+    "postversion": "git push --follow-tags",
+    "relnotes": "changelog -- bin etc share",
+    "unmerged": "git for-each-ref refs/rbenv-tags --format='%(refname)' --merged"
+  },
+  "devDependencies": {
+    "@nodenv/devutil": "^0.1.1",
+    "@nodenv/node-build-update-defs": "^2.11.0",
+    "bats": "^1.6.0",
+    "bats-assert": "jasonkarns/bats-assert-1",
+    "bats-mock": "^1.0.1",
+    "bats-support": "jasonkarns/bats-support"
+  }
+}

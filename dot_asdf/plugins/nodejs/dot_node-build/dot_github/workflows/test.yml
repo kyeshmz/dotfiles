@@ -1,0 +1,12 @@
+name: Test
+on:
+  pull_request:
+  push: { branches: master }
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}-latest
+    strategy: { matrix: { os: [ubuntu, macOS] }}
+    steps:
+    - uses: actions/checkout@v2
+    - run: npm cit

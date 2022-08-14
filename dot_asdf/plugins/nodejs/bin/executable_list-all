@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+# simulate tac on macOS
+if ! command -v tac &>/dev/null; then
+  tac() {
+    cat -n "$@" | sort -nrk1 | cut -f2-
+  }
+fi
+
+set -o nounset -o pipefail -o errexit
+
+# shellcheck source=../lib/utils.sh
+source "$(dirname "$0")/../lib/utils.sh"
+
+function print_only_fully_numeric_items() {
+  local version_numbers="$1"
+  grep -E '^[0-9.]+$' <<< "$version_numbers"
+}
+
+"$ASDF_NODEJS_PLUGIN_DIR/lib/commands/command-update-nodebuild.bash" &> /dev/null
+
+all_definitions_from_node_build="$(nodebuild_wrapped --definitions)"
+
+# Print
+echo $(
+  print_only_fully_numeric_items "$all_definitions_from_node_build"
+  printf "%s\n" lts-{argon,boron,carbon,dubnium,erbium,fermium,gallium} lts
+)

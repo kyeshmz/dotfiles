@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+
+set -e
+
+source "$(dirname "$0")/utils.sh"
+
+install_python() {
+  local install_type=$1
+  local version
+  local symlink_path=$3
+  local install_path
+
+  version="$(resolve_partial_version "$2")"
+  install_path="$(dirname "$symlink_path")/$version"
+
+  if [ "$install_type" != "version" ]; then
+    echoerr "Cannot install specific ref from source, sorry."
+    echoerr "For a list of available versions, see \`asdf list-all python\`."
+    exit 1
+  fi
+  install_or_update_python_build
+
+  if [[ -n "${ASDF_PYTHON_PATCH_URL:-}" ]]; then 
+    echo "python-build --patch $version $install_path"
+    echo "with patch file from: $ASDF_PYTHON_PATCH_URL"
+    $(python_build_path) --patch "$version" "$install_path" < <(curl -sSL "$ASDF_PYTHON_PATCH_URL")
+  elif [[ -n "${ASDF_PYTHON_PATCHES_DIRECTORY:-}" ]] && [[ -f ${ASDF_PYTHON_PATCHES_DIRECTORY}/${version}.patch ]]; then
+    local patch_file=${ASDF_PYTHON_PATCHES_DIRECTORY}/${version}.patch
+    echo "python-build $version $install_path -p < $patch_file"
+    $(python_build_path) "$version" "$install_path" -p < $patch_file
+  else
+    echo "python-build $version $install_path"
+    $(python_build_path) "$version" "$install_path"
+  fi
+
+  if [ "$install_path" != "$symlink_path" ]; then
+    # add a symlink for an alias like:
+    # ~/.asdf/installs/python/3 -> ~/.asdf/installs/python/3.1.2
+    rmdir "$symlink_path" # asdf creates this empty directory we don't want
+    ln -sfv "$install_path" "$symlink_path"
+  fi
+}
+
+install_default_python_packages() {
+  local packages_file="${ASDF_PYTHON_DEFAULT_PACKAGES_FILE:-$HOME/.default-python-packages}"
+
+  if [ -f "$packages_file" ]; then
+    echo -ne "\nInstalling default python packages..."
+    PATH="$ASDF_INSTALL_PATH/bin:$PATH" pip install -U -r "$packages_file"
+  fi
+}
+
+
+fetch_all_versions() {
+  $(python_build_path) --definitions | grep -E '^\d+\.\d+\.\d+$' | sort -rV
+}
+
+resolve_partial_version() {
+  local version=$1
+  if [[ "$version" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    # maps a version like "3.0" or "3" to "3.1.2"
+    fetch_all_versions | grep -e "^$version\." | head -n1
+  else
+    echo "$version"
+  fi
+}
+
+ensure_python_build_installed
+install_python "$ASDF_INSTALL_TYPE" "$ASDF_INSTALL_VERSION" "$ASDF_INSTALL_PATH"
+install_default_python_packages

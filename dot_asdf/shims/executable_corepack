@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# asdf-plugin: nodejs 16.16.0
+# asdf-plugin: nodejs lts
+exec /opt/homebrew/Cellar/asdf/0.10.2/libexec/bin/asdf exec "corepack" "$@" # asdf_allow: ' asdf '

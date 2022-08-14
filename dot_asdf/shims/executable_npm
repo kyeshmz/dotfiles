@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# asdf-plugin: nodejs -h
+# asdf-plugin: nodejs 16.16.0
+# asdf-plugin: nodejs lts
+exec /opt/homebrew/Cellar/asdf/0.10.2/libexec/bin/asdf exec "npm" "$@" # asdf_allow: ' asdf '

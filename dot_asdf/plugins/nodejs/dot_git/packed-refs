@@ -1,0 +1,3 @@
+# pack-refs with: peeled fully-peeled sorted 
+4dff7928d80c46147cbcff9b2dae488e8120915d refs/remotes/origin/freebsd-fixes
+05f99c37d0de29e8ca2b9e90bb36910f56be34d0 refs/remotes/origin/master
