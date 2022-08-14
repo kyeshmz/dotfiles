@@ -1,10 +1,11 @@
 {{- if eq .chezmoi.os "darwin" -}}
 #!/bin/bash
 
-brew bundle --no-lock --file=/dev/stdin <<EOF
+cat > $HOME/.Brewfile <<EOF
 tap "homebrew-ffmpeg/ffmpeg"
 tap "homebrew/bundle"
 tap "homebrew/cask"
+tap "homebrew/cask-fonts"
 tap "homebrew/cask-versions"
 tap "homebrew/core"
 tap "kkshmz/personal"
@@ -36,6 +37,7 @@ brew "pyenv"
 brew "rust"
 brew "starship"
 brew "wget"
+brew "yarn"
 brew "youtube-dl"
 brew "zplug"
 brew "homebrew-ffmpeg/ffmpeg/ffmpeg"
@@ -56,15 +58,19 @@ cask "dume"
 cask "figma"
 cask "firefox"
 cask "flutter"
+cask "font-hack-nerd-font"
 cask "fork"
 cask "gfxcardstatus"
 cask "google-chrome"
+cask "google-cloud-sdk"
 cask "imageoptim"
 cask "iterm2"
 cask "microsoft-office"
 cask "notion"
 cask "parsec"
 cask "postman"
+cask "qlmarkdown"
+cask "qlstephen"
 cask "rhino5"
 cask "slack"
 cask "spotify"
@@ -75,8 +81,11 @@ cask "visual-studio-code"
 cask "vlc"
 cask "webstorm"
 cask "wireshark"
-cask "zeplin"
 cask "zerotier-one"
 cask "zoom"
+
 EOF
+
+brew bundle --global
 {{ end -}}
+
