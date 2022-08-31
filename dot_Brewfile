@@ -4,7 +4,7 @@ tap "homebrew/cask"
 tap "homebrew/cask-fonts"
 tap "homebrew/cask-versions"
 tap "homebrew/core"
-tap "kkshmz/personal"
+
 tap "kyeshmz/personal"
 tap "planetscale/tap"
 brew "giflib"
@@ -78,5 +78,4 @@ cask "vlc"
 cask "wireshark"
 cask "zerotier-one"
 cask "zoom"
-mas "Keynote", id: 409183694
 mas "Xcode", id: 497799835
