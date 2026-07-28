@@ -1,0 +1,15 @@
+# Dependency trees. These are build output, not configuration — they are
+# reinstallable from a manifest and they dominate the repo when tracked
+# (1814 of 3902 tracked files before this was added, all under
+# dot_asdf/installs).
+node_modules/
+
+# macOS directory metadata.
+.DS_Store
+
+# Plan files written by the planner agent. Task-scoped work in progress; the
+# agent's own contract says to delete or archive them once the work is merged.
+.plans/
+
+# Note: files and directories whose names begin with "." are ignored by
+# chezmoi in the source state, so this file is never deployed to ~/.gitignore.
