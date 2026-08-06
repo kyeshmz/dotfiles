@@ -1,0 +1,60 @@
+# Template — copy into .github/workflows/pr-description-check.yml in any repo
+# that wants a hard structural gate on top of the writing-pull-requests skill's
+# discipline. Not installed automatically by sync.sh; this file is a reference
+# asset in the source tree only.
+#
+# Checks that a PR body has the required headings for its diff's size tier.
+# This is a structural check only — it cannot judge prose quality, fabricated
+# claims, or test-plan honesty. That's the skill's job, not this workflow's.
+
+name: PR description check
+
+on:
+  pull_request:
+    types: [opened, edited, ready_for_review, synchronize]
+
+jobs:
+  check-description:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine diff size tier
+        id: size
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          LINES=$(git diff --shortstat "$BASE" "$HEAD" -- . \
+            ':(exclude)*.lock' ':(exclude)*-lock.json' ':(exclude)*.lockb' \
+            | grep -oE '[0-9]+ (insertion|deletion)' \
+            | grep -oE '[0-9]+' \
+            | awk '{s+=$1} END {print s+0}')
+          echo "lines=$LINES" >> "$GITHUB_OUTPUT"
+          if [ "$LINES" -lt 50 ]; then TIER=small
+          elif [ "$LINES" -lt 200 ]; then TIER=medium
+          else TIER=large
+          fi
+          echo "tier=$TIER" >> "$GITHUB_OUTPUT"
+
+      - name: Check required sections are present
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+          TIER: ${{ steps.size.outputs.tier }}
+        run: |
+          missing=()
+          if [ "$TIER" != "small" ]; then
+            echo "$BODY" | grep -qiE '^##[[:space:]]*Summary'   || missing+=("## Summary")
+            echo "$BODY" | grep -qiE '^##[[:space:]]*Why'       || missing+=("## Why")
+            echo "$BODY" | grep -qiE '^##[[:space:]]*Test plan' || missing+=("## Test plan")
+          fi
+          if [ "$TIER" = "large" ]; then
+            echo "$BODY" | grep -qiE '^##[[:space:]]*Risk' || missing+=("## Risk")
+          fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::PR body is missing required section(s) for a $TIER-sized diff (${{ steps.size.outputs.lines }} lines changed): ${missing[*]}"
+            exit 1
+          fi
+          echo "OK — $TIER diff, all required sections present."

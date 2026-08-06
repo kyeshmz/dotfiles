@@ -1,0 +1,3 @@
+# Run artifacts: transcripts, diffs, token ledgers, Codex JSONL.
+# These can contain source from whatever repo was targeted — keep them local.
+runs/

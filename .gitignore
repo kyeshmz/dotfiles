@@ -21,5 +21,9 @@ dot_asdf/
 # Local safety nets, superseded by git history once the tree is tracked.
 agents/.backup-agents-*/
 
+# Compiled Python from agents/conductor/scripts.
+__pycache__/
+*.pyc
+
 # Note: files and directories whose names begin with "." are ignored by
 # chezmoi in the source state, so this file is never deployed to ~/.gitignore.

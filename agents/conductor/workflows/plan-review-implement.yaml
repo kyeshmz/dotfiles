@@ -1,0 +1,492 @@
+workflow:
+  name: plan-review-implement
+  description: >
+    The cross-engine lane. Same roles as `light` — all loaded from the `.md`
+    definitions under agents/ — but the whole run executes on the codex
+    engine, so the code is written by a different vendor's model than the
+    one reviewing it. Engine is a run-level choice, not a per-role one: no
+    definition declares a model, so `plan_engine` decides who writes. One
+    cold plan review, no revision loop: this lane is for when you want a
+    second engine on the implementation, not a longer argument about the
+    plan.
+  version: 0.3.0
+  entry_point: token_baseline
+
+  runtime:
+    provider: claude
+    default_model: claude-opus-5
+    # max_tokens is deliberately UNSET. On the Anthropic path max_tokens is
+    # spent on thinking + visible answer combined, so setting it would clamp
+    # extended thinking. Leaving it None lets the provider use its ceiling.
+    timeout: 3600
+
+  # CRITICAL: `explicit` means an agent sees ONLY what its `input:` list
+  # names. The default (`accumulate`) would let the reviewer and the
+  # validator read the planner's reasoning, defeating the separation.
+  context:
+    mode: explicit
+
+  limits:
+    timeout_seconds: 28800
+    max_iterations: 40
+
+  cost:
+    enabled: true
+
+  input:
+    task:
+      type: string
+      required: true
+      description: What to build. The planner's sole instruction.
+    repo:
+      type: string
+      required: true
+      description: Absolute path to the repository the agents operate on.
+    agents_dir:
+      type: string
+      required: true
+      description: >
+        Directory holding the role definitions. Every role in this lane is
+        loaded from a `.md` in here.
+    plan_engine:
+      type: string
+      required: false
+      default: codex
+    plan_model:
+      type: string
+      required: false
+      default: ""
+    impl_agent:
+      type: string
+      required: false
+      default: implementer
+      description: >
+        There is one implementation role and it declares no model. The
+        engine comes from `plan_engine`, which this lane sets to codex —
+        preflight probes it before any tokens are spent.
+    test_engine:
+      type: string
+      required: false
+      default: codex
+    test_model:
+      type: string
+      required: false
+      default: gpt-5.6-luna
+      description: >
+        Deliberately a different codex model from the implementer's, so the
+        test author does not inherit its blind spots.
+    run_security:
+      type: string
+      required: false
+      default: "true"
+    run_perf:
+      type: string
+      required: false
+      default: "true"
+    run_dir:
+      type: string
+      required: true
+      description: Directory for artifacts and token ledgers. Set by run.sh.
+    scripts_dir:
+      type: string
+      required: true
+      description: Absolute path to this repo's scripts/. Set by run.sh.
+
+agents:
+  # ── 0. TOKEN BASELINE ────────────────────────────────────────────────
+  - name: token_baseline
+    type: script
+    description: Snapshot cumulative usage before anything runs.
+    command: "{{ workflow.input.scripts_dir }}/token-report.py"
+    args: ["--phase", "before"]
+    env:
+      RUN_DIR: "{{ workflow.input.run_dir }}"
+    timeout: 300
+    routes:
+      - to: preflight
+
+  # ── 1. PREFLIGHT ─────────────────────────────────────────────────────
+  # codex is checked here specifically: the planner's contract forbids it
+  # from silently substituting a different implementation agent, so an
+  # absent codex binary must surface before the plan is written, not
+  # mid-dispatch.
+  - name: preflight
+    type: script
+    description: Probe engine availability, including the codex binary.
+    command: "{{ workflow.input.scripts_dir }}/preflight.sh"
+    env:
+      RUN_DIR: "{{ workflow.input.run_dir }}"
+      SCRIPTS_DIR: "{{ workflow.input.scripts_dir }}"
+      REPO: "{{ workflow.input.repo }}"
+      PLAN_ENGINE: "{{ workflow.input.plan_engine }}"
+      PLAN_MODEL: "{{ workflow.input.plan_model | default('claude-fable-5', true) }}"
+      TEST_ENGINE: "{{ workflow.input.test_engine }}"
+      TEST_MODEL: "{{ workflow.input.test_model }}"
+      IMPL_AGENT: "{{ workflow.input.impl_agent }}"
+    timeout: 900
+    routes:
+      - when: "{{ not preflight.output.ready }}"
+        to: engines_unavailable
+      - to: plan
+
+  # ── 2. PLAN — agents/planner.md, Agent tool withheld ─────────────────
+  - name: plan
+    type: script
+    description: The planner writes .plans/<task-slug>.md and stops.
+    input:
+      - workflow.input.task
+    command: "{{ workflow.input.scripts_dir }}/agent-plan.sh"
+    env:
+      MODE: plan
+      RUN_DIR: "{{ workflow.input.run_dir }}"
+      SCRIPTS_DIR: "{{ workflow.input.scripts_dir }}"
+      REPO: "{{ workflow.input.repo }}"
+      AGENTS_DIR: "{{ workflow.input.agents_dir }}"
+      TASK: "{{ workflow.input.task }}"
+      ENGINE: "{{ workflow.input.plan_engine }}"
+      MODEL: "{{ workflow.input.plan_model }}"
+    timeout: 7200
+    routes:
+      - when: "{{ plan.output.declined }}"
+        to: planner_declined
+      - to: plan_reviewer
+
+  # ── 3. PLAN REVIEW — fresh Opus 5, cold context ──────────────────────
+  - name: plan_reviewer
+    type: agent
+    description: >
+      A separate Opus 5 instance. Sees the plan and the task, never the
+      planner's reasoning - `input` is the only context it receives.
+    provider: claude
+    model: claude-opus-5
+    reasoning:
+      effort: max
+    input:
+      - workflow.input.task
+      - plan.output.plan_markdown
+      - plan.output.phase_count
+      - workflow.input.impl_agent
+    system_prompt: >
+      You are reviewing an implementation plan written by someone else. You
+      did not write it and have no stake in it. Find what is wrong with it
+      before anyone spends compute executing it. A vague objection is worse
+      than no objection.
+    prompt: |
+      Original task:
+      {{ workflow.input.task }}
+
+      Proposed plan ({{ plan.output.phase_count }} phases):
+      {{ plan.output.plan_markdown }}
+
+      The plan is executed one phase at a time by `{{ workflow.input.impl_agent }}`,
+      whose entire context is this plan file plus a per-phase dispatch
+      derived from it. It is a DIFFERENT vendor's model from the one that
+      wrote the plan: it does not share the planner's priors about what an
+      instruction obviously means, and it cannot ask.
+
+      Review in priority order:
+
+      1. CORRECTNESS — will this actually accomplish the task? What does it
+         miss?
+      2. PHASE BOUNDARIES — each phase must leave the tree compiling with
+         existing tests passing. Does any phase change a symbol whose
+         consumers are only updated in a later phase? Is any file created
+         and never wired in by the last phase?
+      3. SELF-CONTAINMENT — is every decision already closed in the text?
+         Weight this harder than you would for a same-family implementer:
+         anything left implicit is where a cross-vendor model diverges.
+      4. VERIFICATION — is every automated-verification line a literal
+         command, and does it distinguish done from not-done?
+
+      Set verdict to `approved` only if you would run this as-is.
+      `revise` when the plan is sound but needs fixing.
+      `reject` when the approach itself is wrong.
+
+      Write `findings_for_planner` as the complete, self-contained brief the
+      plan's author will revise against — it sees that text and the plan
+      file, nothing else.
+
+      Think as long as you need. There is no budget on reasoning.
+    output:
+      verdict:
+        type: string
+        description: One of - approved, revise, reject.
+      blocking_issues:
+        type: array
+        description: Issues that must be fixed. Empty when approved.
+      findings_for_planner:
+        type: string
+        description: Self-contained revision brief when verdict is `revise`.
+      review_notes:
+        type: string
+        description: The full review.
+    routes:
+      - when: "{{ plan_reviewer.output.verdict == 'reject' }}"
+        to: plan_rejected
+      - when: "{{ plan_reviewer.output.verdict == 'revise' }}"
+        to: revise
+      - to: approval_gate
+
+  # ── 4. REVISE — the planner, same plan path ──────────────────────────
+  - name: revise
+    type: script
+    description: The planner revises against the reviewer's findings.
+    input:
+      - plan.output.plan_path
+      - plan_reviewer.output.findings_for_planner
+    command: "{{ workflow.input.scripts_dir }}/agent-plan.sh"
+    env:
+      MODE: revise
+      RUN_DIR: "{{ workflow.input.run_dir }}"
+      SCRIPTS_DIR: "{{ workflow.input.scripts_dir }}"
+      REPO: "{{ workflow.input.repo }}"
+      AGENTS_DIR: "{{ workflow.input.agents_dir }}"
+      TASK: "{{ workflow.input.task }}"
+      PLAN_PATH: "{{ plan.output.plan_path }}"
+      FINDINGS: "{{ plan_reviewer.output.findings_for_planner }}"
+      ENGINE: "{{ workflow.input.plan_engine }}"
+      MODEL: "{{ workflow.input.plan_model }}"
+    timeout: 7200
+    routes:
+      - to: approval_gate
+
+  # ── 5. HUMAN GATE ────────────────────────────────────────────────────
+  - name: approval_gate
+    type: human_gate
+    description: Last look before any implementation tokens are spent.
+    input:
+      - plan.output.plan_path
+      - plan.output.plan_markdown
+      - revise.output.plan_markdown?
+      - plan_reviewer.output.verdict
+      - plan_reviewer.output.blocking_issues
+      - plan_reviewer.output.review_notes
+      - workflow.input.impl_agent
+      - preflight.output.notes
+      - preflight.output.degraded
+    prompt: |
+      Review lane: PLAN-REVIEW-IMPLEMENT (cross-engine implementation)
+
+      Implementation role: {{ workflow.input.impl_agent }}
+
+      Engine status:
+      {% if preflight.output.degraded %}DEGRADED — {{ preflight.output.notes }}
+      {% else %}all engines available{% endif %}
+
+      Reviewer verdict: {{ plan_reviewer.output.verdict }}
+
+      Blocking issues:
+      {{ plan_reviewer.output.blocking_issues }}
+
+      Review notes:
+      {{ plan_reviewer.output.review_notes }}
+
+      ── Plan: {{ plan.output.plan_path }} ──
+      {{ revise.output.plan_markdown | default(plan.output.plan_markdown, true) }}
+
+      Proceed to implementation?
+    options:
+      - label: Approve — the planner executes this plan
+        value: approve
+        route: implement
+      - label: Abort
+        value: abort
+        route: plan_rejected
+
+  # ── 6. IMPLEMENT — the planner dispatches the implementer on codex ───
+  - name: implement
+    type: script
+    description: The planner executes the approved plan phase by phase.
+    input:
+      - plan.output.plan_path
+    command: "{{ workflow.input.scripts_dir }}/agent-plan.sh"
+    env:
+      MODE: implement
+      RUN_DIR: "{{ workflow.input.run_dir }}"
+      SCRIPTS_DIR: "{{ workflow.input.scripts_dir }}"
+      REPO: "{{ workflow.input.repo }}"
+      AGENTS_DIR: "{{ workflow.input.agents_dir }}"
+      TASK: "{{ workflow.input.task }}"
+      PLAN_PATH: "{{ plan.output.plan_path }}"
+      IMPL_AGENT: "{{ workflow.input.impl_agent }}"
+      ENGINE: "{{ workflow.input.plan_engine }}"
+      MODEL: "{{ workflow.input.plan_model }}"
+    timeout: 28800
+    routes:
+      - when: "{{ preflight.output.tests_available }}"
+        to: tests
+      - to: review_panel
+
+  # ── 7. TESTS — a different model from the implementer ────────────────
+  - name: tests
+    type: script
+    description: Test authoring on a different model than the implementer.
+    input:
+      - implement.output.planner_message
+    command: "{{ workflow.input.scripts_dir }}/agent-tests.sh"
+    env:
+      RUN_DIR: "{{ workflow.input.run_dir }}"
+      SCRIPTS_DIR: "{{ workflow.input.scripts_dir }}"
+      REPO: "{{ workflow.input.repo }}"
+      TEST_ENGINE: "{{ workflow.input.test_engine }}"
+      TEST_MODEL: "{{ workflow.input.test_model }}"
+      PLAN_MARKDOWN: "{{ plan.output.plan_markdown }}"
+      IMPL_REPORT: "{{ implement.output.planner_message }}"
+    timeout: 7200
+    routes:
+      - to: review_panel
+
+  # ── 8. REVIEW PANEL — inspector + the two consultants ────────────────
+  - name: review_panel
+    type: script
+    description: inspector, security-consultant, performance-consultant — concurrent.
+    input:
+      - plan.output.plan_markdown
+      - implement.output.planner_message
+    command: "{{ workflow.input.scripts_dir }}/agent-review.sh"
+    env:
+      RUN_DIR: "{{ workflow.input.run_dir }}"
+      SCRIPTS_DIR: "{{ workflow.input.scripts_dir }}"
+      REPO: "{{ workflow.input.repo }}"
+      AGENTS_DIR: "{{ workflow.input.agents_dir }}"
+      TASK: "{{ workflow.input.task }}"
+      PLAN_PATH: "{{ plan.output.plan_path }}"
+      PLAN_MARKDOWN: "{{ plan.output.plan_markdown }}"
+      IMPL_REPORT: "{{ implement.output.planner_message }}"
+      RUN_SECURITY: "{{ workflow.input.run_security }}"
+      RUN_PERF: "{{ workflow.input.run_perf }}"
+      ENGINE: "{{ workflow.input.plan_engine }}"
+    timeout: 14400
+    routes:
+      - to: implementation_validator
+
+  # ── 9. VALIDATE — fresh Opus 5, judges the ORIGINAL task ─────────────
+  - name: implementation_validator
+    type: agent
+    description: >
+      Independent of both the planner and the panel. Judges the finished
+      work against the ORIGINAL task, not against the plan - a faithfully
+      executed wrong plan still fails here.
+    provider: claude
+    model: claude-opus-5
+    reasoning:
+      effort: max
+    input:
+      - workflow.input.task
+      - implement.output.planner_message
+      - implement.output.escalated
+      - tests.output?
+      - review_panel.output.findings_summary
+      - review_panel.output.blocking
+    system_prompt: >
+      You are validating work produced by other agents. You did not plan it
+      and did not write it. Your only allegiance is to the original task.
+      Every report below is a claim, not evidence.
+    prompt: |
+      Original task:
+      {{ workflow.input.task }}
+
+      What the planner reports:
+      {{ implement.output.planner_message }}
+
+      Escalated: {{ implement.output.escalated }}
+
+      Test author:
+      {{ tests.output | default({}, true) }}
+
+      Review panel verdicts: {{ review_panel.output.findings_summary }}
+      Blocking: {{ review_panel.output.blocking }}
+
+      The panel already covered correctness, plan conformance, security, and
+      performance. Do NOT re-derive their findings. Answer the one question
+      none of them was asked:
+
+      Does the result accomplish the ORIGINAL task as stated? A plan can be
+      executed perfectly, pass every check, satisfy every reviewer, and still
+      not solve the problem that was asked for.
+
+      Also account for anything the panel could not see: work the planner
+      escalated, phases left unexecuted, and any claim above that the panel's
+      verdicts contradict.
+
+      Think as long as you need. There is no budget on reasoning.
+    output:
+      verdict:
+        type: string
+        description: One of - pass, pass_with_issues, fail.
+      task_satisfied:
+        type: boolean
+        description: Does the result accomplish the original task?
+      gaps:
+        type: array
+        description: What the task asked for and did not get.
+      validation_notes:
+        type: string
+        description: The full validation writeup.
+    routes:
+      - to: token_report
+
+  # ── 10. TOKEN LEDGER ─────────────────────────────────────────────────
+  - name: token_report
+    type: script
+    description: >
+      Reconciles Conductor's UsageTracker (Claude provider agents) with the
+      normalized JSON each engine adapter emits (script agents) into one
+      before/after ledger.
+    command: "{{ workflow.input.scripts_dir }}/token-report.py"
+    args: ["--phase", "after"]
+    env:
+      RUN_DIR: "{{ workflow.input.run_dir }}"
+    timeout: 300
+    routes:
+      - to: $end
+
+  # ── TERMINAL ─────────────────────────────────────────────────────────
+  - name: planner_declined
+    type: terminate
+    status: success
+    reason: >
+      The planner wrote no plan. Either the change is too small to plan and
+      it returned the one-line instruction, or a decision belongs to the
+      human and it asked. Read `plan.output.planner_message`. Both outcomes
+      are correct and no implementation tokens were spent.
+
+  - name: engines_unavailable
+    type: terminate
+    status: failed
+    reason: >
+      Preflight could not reach the plan engine, or the codex binary this
+      lane's implementation role needs. The planner deliberately will not
+      substitute a different implementation agent, so this stops rather than
+      quietly becoming the `light` lane.
+
+  - name: plan_rejected
+    type: terminate
+    status: failed
+    reason: >
+      Plan not approved - the reviewer rejected it or the operator aborted
+      at the gate. No implementation tokens spent.
+
+output:
+  lane: plan-review-implement
+  impl_agent: "{{ workflow.input.impl_agent }}"
+  plan_path: >-
+    {% if plan is defined %}{{ plan.output.plan_path }}{% else %}none{% endif %}
+  planner_message: >-
+    {% if plan is defined %}{{ plan.output.planner_message }}{% else %}{% endif %}
+  plan_verdict: >-
+    {% if plan_reviewer is defined %}{{ plan_reviewer.output.verdict }}{% else %}not_reached{% endif %}
+  revised: >-
+    {% if revise is defined %}true{% else %}false{% endif %}
+  implementation_escalated: >-
+    {% if implement is defined %}{{ implement.output.escalated }}{% else %}n/a{% endif %}
+  panel: >-
+    {% if review_panel is defined %}{{ review_panel.output.findings_summary }}{% else %}not_reached{% endif %}
+  blocking: >-
+    {% if review_panel is defined %}{{ review_panel.output.blocking }}{% else %}[]{% endif %}
+  final_verdict: >-
+    {% if implementation_validator is defined %}{{ implementation_validator.output.verdict }}{% else %}not_reached{% endif %}
+  task_satisfied: >-
+    {% if implementation_validator is defined %}{{ implementation_validator.output.task_satisfied }}{% else %}false{% endif %}
+  token_ledger: >-
+    {% if token_report is defined %}{{ token_report.output.stdout }}{% else %}{}{% endif %}
