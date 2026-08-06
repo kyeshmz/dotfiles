@@ -1,6 +1,0 @@
-# Output should be <title>: <link>
-
-echo 'home-page: https://github.com/danhper/asdf-python
-dependencies: https://github.com/pyenv/pyenv/wiki#suggested-build-environment
-troubleshooting: https://github.com/pyenv/pyenv/wiki/Common-build-problems
-'

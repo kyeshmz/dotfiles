@@ -1,6 +1,0 @@
-[data]
-    email = "kyeshimizu@gmail.com"
-
-[git]
-    autoCommit = true
-    autoPush = true

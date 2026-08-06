@@ -4,12 +4,22 @@
 # dot_asdf/installs).
 node_modules/
 
+# asdf runtimes: 2074 files / 93MB of node-16.16.0 and flutter binaries that
+# were captured by mistake. Untracked rather than deleted, so the local copy
+# survives until you reclaim the space yourself. run_once_install-packages.sh
+# installs the runtimes; .chezmoiignore stops them ever deploying to ~/.asdf.
+dot_asdf/
+
 # macOS directory metadata.
 .DS_Store
 
 # Plan files written by the planner agent. Task-scoped work in progress; the
 # agent's own contract says to delete or archive them once the work is merged.
 .plans/
+
+# Timestamped snapshots agents/sync.sh takes before overwriting definitions.
+# Local safety nets, superseded by git history once the tree is tracked.
+agents/.backup-agents-*/
 
 # Note: files and directories whose names begin with "." are ignored by
 # chezmoi in the source state, so this file is never deployed to ~/.gitignore.
