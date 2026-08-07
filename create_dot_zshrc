@@ -2,7 +2,7 @@
 #
 # The create_ prefix means chezmoi writes this ONLY when ~/.zshrc does not
 # already exist, and never touches an existing one. A long-lived machine
-# accumulates tool installers' additions (nvm, bun, pnpm, pipx, gcloud...) and
+# accumulates tool installers' additions (bun, pnpm, pipx, gcloud...) and
 # clobbering that on every `chezmoi apply` would be destructive. Edit this file
 # for what a NEW machine should start with, not to push changes to old ones.
 

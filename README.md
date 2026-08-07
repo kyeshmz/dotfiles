@@ -104,7 +104,7 @@ write files into the source tree directly and commit by hand.
   `rm -rf dot_asdf` in the source dir when you want the space back.
 - `create_dot_zshrc` uses the `create_` prefix: chezmoi writes `~/.zshrc` only
   when it does not exist and never touches an existing one. A long-lived machine
-  accumulates additions from nvm, bun, pnpm, pipx and gcloud installers, and
+  accumulates additions from bun, pnpm, pipx and gcloud installers, and
   rewriting that on every apply would be destructive. Edit it for what a **new**
   machine starts with, not to push changes to old ones.
 - `agents/` is the source tree for the Claude agent definitions, tracked but
@@ -131,7 +131,11 @@ prefix matters: it guarantees `~/.config/mise/config.toml` is on disk before
 
 ## Runtimes
 
-**mise**, not asdf. node, python and ruby are pinned in
+**mise, and only mise.** asdf, nvm, pyenv, chruby and ruby-install have all been
+removed — from both Brewfiles, from the shell config, and from this machine. If
+you find yourself reaching for one of them, add the tool to mise instead.
+
+node, python and ruby are pinned in
 `dot_config/mise/config.toml` → `~/.config/mise/config.toml`, and
 `mise install` in the bootstrap script materialises exactly those versions, so
 machines set up months apart don't drift.
