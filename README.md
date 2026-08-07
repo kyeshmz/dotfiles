@@ -129,11 +129,8 @@ write files into the source tree directly and commit by hand.
   captured by mistake; applying it would have created a `~/.asdf` that no
   current machine has. The local copy is left on disk deliberately —
   `rm -rf dot_asdf` in the source dir when you want the space back.
-- `create_dot_zshrc` uses the `create_` prefix: chezmoi writes `~/.zshrc` only
-  when it does not exist and never touches an existing one. A long-lived machine
-  accumulates additions from bun, pnpm, pipx and gcloud installers, and
-  rewriting that on every apply would be destructive. Edit it for what a **new**
-  machine starts with, not to push changes to old ones.
+- `modify_dot_zshrc` uses the `modify_` prefix: chezmoi runs it with the current
+  `~/.zshrc` on stdin and uses its stdout as the new one. See Shell config below.
 - `agents/` is the source tree for the Claude agent definitions, tracked but
   never deployed. `agents/sync.sh` renders it into `~/.claude` and into
   `dot_claude/`. `.chezmoiignore` stops it landing as `~/agents`.
@@ -155,6 +152,69 @@ interleave by path and `mise install` could run against no config.
 `run_once_` state is keyed on the script's SHA256, so **editing this file makes
 it run again** on every machine that has already run it. Check with
 `chezmoi state dump | grep -A2 scriptState` before changing it.
+
+## Shell config — injected, not copied
+
+`~/.zshrc` is **not** copied wholesale. `modify_dot_zshrc` receives the current
+file on stdin and writes back the same file with one managed block spliced in:
+
+```sh
+# >>> chezmoi managed >>>
+eval "$(mise activate zsh)"
+export PATH="/opt/homebrew/opt/ssh-copy-id/bin:$PATH"
+export PATH="$PATH:$HOME/.pub-cache/bin"
+autoload -Uz compinit && compinit
+[ -r "$HOME/.config/zsh/secrets.zsh" ] && . "$HOME/.config/zsh/secrets.zsh"
+eval "$(starship init zsh)"
+# <<< chezmoi managed <<<
+```
+
+Everything outside the markers is left byte-for-byte alone — the ~140 lines of
+Android SDK paths, llvm flags, bun/pnpm/pipx blocks and aliases this machine has
+accumulated. Re-running is idempotent: the old block is stripped before the new
+one is written. On a machine with no `~/.zshrc` at all, stdin is empty and you
+get just the block, which is a valid working shell.
+
+Edit the block by editing `modify_dot_zshrc`. Edits made *inside* the markers in
+`~/.zshrc` are overwritten on the next apply; put machine-local things outside.
+
+**The repo stores the script, never your file.** There is no
+`chezmoi add ~/.zshrc` step, so nothing machine-local — and no key sitting in
+`~/.zshrc` — is ever read into the source state. That is what makes this safe in
+a public repo.
+
+## Secrets
+
+Keys go in `~/.config/zsh/secrets.zsh`, mode 600, which `.chezmoiignore`
+excludes from the source state entirely. The managed block sources it behind
+`[ -r ]`, so a machine that has not set it up still gets a working shell.
+
+```sh
+cp ~/.config/zsh/secrets.zsh.example ~/.config/zsh/secrets.zsh
+chmod 600 ~/.config/zsh/secrets.zsh
+$EDITOR ~/.config/zsh/secrets.zsh
+```
+
+`dot_config/zsh/secrets.zsh.example` **is** committed and documents the expected
+variables with no values. The values themselves do not sync — on a new machine
+you re-fill them from your password manager. `bw` (Bitwarden) is installed and in
+both Brewfiles if you later want chezmoi to template them in at apply time.
+
+A `pre-commit` hook backstops all of this, because `autoCommit` + `autoPush` mean
+a wrong `chezmoi add` commits *and* pushes before you can react. It scans added
+lines for Anthropic, OpenAI, GitHub, AWS, Slack and Google key shapes, private
+key blocks, and any `*_KEY/TOKEN/SECRET/PASSWORD=` with a substantial value.
+Commented and empty assignments pass, so the `.example` file does not trip it.
+
+It lives in `.bootstrap/hooks/` so it is version-controlled, and is wired up per
+clone with:
+
+```sh
+git config core.hooksPath .bootstrap/hooks
+```
+
+`.bootstrap/init.sh` does that automatically. Bypass a genuine false positive
+with `git commit --no-verify`.
 
 ## Runtimes
 

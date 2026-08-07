@@ -109,6 +109,19 @@ if [ "$GOT" != "$PROFILE" ]; then
 	exit 1
 fi
 
+# Wire up the secret-scanning pre-commit hook. core.hooksPath is per-clone local
+# config, so a fresh clone has no hooks until this runs — and this repo is public
+# with autoCommit + autoPush enabled, which is exactly when it matters.
+#
+# Re-resolved here on purpose: on the fresh-clone path SRC was evaluated before
+# the source dir existed, so it is empty and the -d test below would quietly skip
+# the install on exactly the machine that has no hook yet.
+SRC=$($CHEZMOI source-path 2>/dev/null || true)
+if [ -n "$SRC" ] && [ -d "$SRC/.bootstrap/hooks" ]; then
+	git -C "$SRC" config core.hooksPath .bootstrap/hooks
+	echo "==> pre-commit secret scan enabled"
+fi
+
 echo "==> managed under '$PROFILE':"
 $CHEZMOI managed --path-style relative | sed 's/^/    /'
 

@@ -1,0 +1,77 @@
+#!/bin/sh
+# Refuse to commit anything that looks like a credential.
+#
+# This repo is PUBLIC and has git.autoCommit + git.autoPush enabled, so a
+# `chezmoi add` of the wrong path commits AND pushes before you can react. This
+# hook is the backstop. It scans only lines being ADDED by this commit.
+#
+# Installed via core.hooksPath, not .git/hooks, so it is version-controlled:
+#   git config core.hooksPath .bootstrap/hooks
+#
+# Bypass deliberately, for a genuine false positive:
+#   git commit --no-verify
+set -eu
+
+added=$(git diff --cached --diff-filter=ACM -U0 |
+	grep -E '^\+' | grep -vE '^\+\+\+' || true)
+
+[ -n "$added" ] || exit 0
+
+fail=0
+report() {
+	[ "$fail" -eq 0 ] && {
+		echo "pre-commit: possible credential in staged changes" >&2
+		echo >&2
+	}
+	fail=1
+	printf '  %-22s %s\n' "$1" "$2" >&2
+}
+
+# Provider-specific prefixes. These are unambiguous — no value judgement needed.
+#
+# The explicit `return 0` matters: with `[ -n "$m" ] && report ...` as the last
+# statement, a pattern that does NOT match makes the function return 1, and under
+# `set -e` that aborts the hook with exit 1 — blocking every commit, silently,
+# whether or not a secret was present.
+check_pattern() {
+	# -e is required, not optional: the private-key pattern begins with "-----",
+	# which BSD grep otherwise parses as a bundle of options and errors out —
+	# silently leaving that pattern unchecked.
+	m=$(printf '%s\n' "$added" | grep -oE -e "$2" | head -3 || true)
+	if [ -n "$m" ]; then
+		report "$1" "$(printf '%s' "$m" | head -1 | cut -c1-24)…"
+	fi
+	return 0
+}
+
+check_pattern "anthropic key/token" 'sk-ant-[A-Za-z0-9_-]{20,}'
+check_pattern "openai key"          'sk-(proj-)?[A-Za-z0-9]{32,}'
+check_pattern "github token"        '(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}'
+check_pattern "github fine-grained" 'github_pat_[A-Za-z0-9_]{30,}'
+check_pattern "aws access key"      'AKIA[0-9A-Z]{16}'
+check_pattern "slack token"         'xox[abprs]-[A-Za-z0-9-]{10,}'
+check_pattern "google api key"      'AIza[0-9A-Za-z_-]{35}'
+check_pattern "private key block"   '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+
+# Generic assignment with a substantial value. Deliberately ignores empty
+# strings and commented lines so secrets.zsh.example does not trip it.
+generic=$(printf '%s\n' "$added" |
+	grep -vE '^\+[[:space:]]*#' |
+	grep -oE '(export[[:space:]]+)?[A-Z][A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)[[:space:]]*=[[:space:]]*['"'"'"][^'"'"'"]{16,}['"'"'"]' |
+	head -3 || true)
+if [ -n "$generic" ]; then
+	report "assigned secret" "$(printf '%s' "$generic" | head -1 | cut -d= -f1)=…"
+fi
+
+if [ "$fail" -ne 0 ]; then
+	cat >&2 <<'EOF'
+
+Keys belong in ~/.config/zsh/secrets.zsh, which .chezmoiignore excludes from the
+source state entirely. dot_config/zsh/secrets.zsh.example documents the shape.
+
+If this is genuinely a false positive: git commit --no-verify
+EOF
+	exit 1
+fi
+
+exit 0
