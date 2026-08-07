@@ -19,24 +19,51 @@ init time, and it is stored in `~/.config/chezmoi/chezmoi.toml` as `profile`.
 is on `.chezmoi.os`, not on the profile, so Linux never tries to run `brew
 bundle` or `xcode-select`.
 
-### New machine
+### New machine — `claude` profile
 
-Claude config only — no brew, no macOS scripts, works on any OS:
+No prerequisites beyond `curl`. Installs nothing but `~/.claude`, runs no
+scripts, and works on macOS or Linux:
 
 ```sh
 sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply kyeshmz/dotfiles \
   --promptChoice 'Profile=claude'
 ```
 
-Everything:
+That is the whole procedure. Nothing below applies.
+
+### New machine — `full` profile (macOS)
+
+`full` runs `run_once_after_install-packages.sh`, which needs Homebrew and the
+App Store. Do these **first**, in this order:
+
+1. Sign in to iCloud and the App Store — the `mas` entries in `~/.Brewfile` fail
+   otherwise, and that is where Xcode comes from.
+2. Install all macOS updates.
+3. Quit Terminal, then grant it Full Disk Access in System Settings →
+   Privacy & Security → Full Disk Access.
+4. Install Homebrew:
+   ```sh
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+5. Install 1Password and sign in.
+
+Then:
 
 ```sh
 sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply kyeshmz/dotfiles \
-  --promptChoice 'Profile=full'
+  --promptChoice 'Profile=full' \
+  --promptString 'Email address=you@example.com'
 ```
 
-`full` also prompts for the git email. Add `--promptString 'Email address=you@example.com'`
-to make it fully unattended.
+Drop the `--promptString` and it asks for the git email interactively.
+
+Expect this to take a while and to stop for input: `mise install` compiles python
+and ruby from source, and both `flutter doctor --android-licenses` and
+`sudo xcodebuild -license` are interactive. Restart when it finishes.
+
+If Homebrew is missing the script exits with instructions and is **not** marked
+as run, so `chezmoi apply` retries it once you have installed brew. Flutter and
+Xcode steps skip with a message rather than aborting the rest.
 
 Omit `--promptChoice` entirely and chezmoi asks, defaulting to `claude`.
 
@@ -91,7 +118,7 @@ write files into the source tree directly and commit by hand.
 
 - `.chezmoiignore` is a template. Its patterns match **target** paths
   (`.claude/agents`, not `dot_claude/agents`), and script prefixes are stripped
-  — `run_once_install-packages.sh` is matched as `install-packages.sh`.
+  — `run_once_after_install-packages.sh` is matched as `install-packages.sh`.
 - `.bootstrap/` is version-controlled but never deployed: chezmoi ignores source
   entries whose names begin with a dot.
 - `~/.config/chezmoi/chezmoi.toml` is **generated** by `chezmoi init` from
@@ -111,23 +138,23 @@ write files into the source tree directly and commit by hand.
   never deployed. `agents/sync.sh` renders it into `~/.claude` and into
   `dot_claude/`. `.chezmoiignore` stops it landing as `~/agents`.
 
-## Manual macOS steps (`full` profile)
+## Leaving the old machine
 
-Before wiping the old machine, deactivate licenses / sign out: Dropbox,
-Gemini 2, Screenflow, Tower, Apple TV, Music.
+Deactivate licenses / sign out before wiping: Dropbox, Gemini 2, Screenflow,
+Tower, Apple TV, Music.
 
-On the new machine, before running the init one-liner:
+## What the bootstrap script does
 
-1. Sign in to iCloud and the App Store — `mas` installs fail otherwise.
-2. Install all macOS updates.
-3. Install 1Password and sign in.
-4. Quit Terminal, then grant it Full Disk Access in System Settings →
-   Privacy & Security → Full Disk Access.
+`run_once_after_install-packages.sh`, in order: Rosetta, `brew bundle --global`,
+`mise install`, `spctl`, the flutter Android licenses, and the Xcode license.
 
-Afterwards, restart. `run_once_after_install-packages.sh` handles Rosetta, `brew
-bundle --global`, `mise install`, the Xcode license and `spctl`. The `after_`
-prefix matters: it guarantees `~/.config/mise/config.toml` is on disk before
-`mise install` reads it.
+The `after_` prefix matters — it guarantees `~/.config/mise/config.toml` is on
+disk before `mise install` reads it. Without it, script and file ordering
+interleave by path and `mise install` could run against no config.
+
+`run_once_` state is keyed on the script's SHA256, so **editing this file makes
+it run again** on every machine that has already run it. Check with
+`chezmoi state dump | grep -A2 scriptState` before changing it.
 
 ## Runtimes
 
