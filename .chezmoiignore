@@ -30,11 +30,11 @@ README.md
 # file, drop .profile, and break this very template.
 .config/chezmoi/**
 
-# asdf runtimes were build output captured by mistake -- 2073 files / 93MB
-# pinned at node 16.16.0, which `chezmoi apply` would have written into a
-# ~/.asdf that no current machine has. dot_asdf/ is gone from the repo; these
-# lines stay as a guard so a stray `chezmoi add ~/.asdf` cannot reintroduce it.
-# run_once_install-packages.sh installs the runtimes properly.
+# asdf is gone -- mise replaces it, with versions pinned in
+# dot_config/mise/config.toml. These lines were originally needed because
+# dot_asdf/ held 2073 files / 93MB of node-16.16.0 binaries captured by mistake,
+# which `chezmoi apply` would have written into a ~/.asdf that no machine has.
+# They stay as a guard so a stray `chezmoi add ~/.asdf` cannot reintroduce it.
 .asdf
 .asdf/**
 

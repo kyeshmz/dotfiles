@@ -1,0 +1,27 @@
+# Global runtime versions, deployed to ~/.config/mise/config.toml.
+#
+# This replaces asdf and its ~/.tool-versions. run_once_after_install-packages.sh
+# runs `mise install`, which reads exactly these pins — so a new machine gets the
+# same runtimes rather than whatever `latest` happens to mean that day.
+#
+# Add a tool with `mise use -g <tool>@<version>`, then re-capture with
+# `chezmoi add ~/.config/mise/config.toml`.
+
+[tools]
+node = "22"
+python = "3.11.11"
+ruby = "3.2.8"
+usage = "latest"
+
+[settings]
+# Honour .nvmrc and .node-version in project dirs, so repos that predate mise
+# still resolve to the right node without a mise.toml.
+idiomatic_version_file_enable_tools = ["node"]
+
+[settings.python]
+compile = true
+
+[plugins]
+# https rather than git@: a fresh machine runs `mise install` before any SSH key
+# is set up, and this repo is public so there is nothing to authenticate for.
+fastlane = "https://github.com/mollyIV/asdf-fastlane.git"

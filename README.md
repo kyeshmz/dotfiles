@@ -97,12 +97,16 @@ write files into the source tree directly and commit by hand.
 - `~/.config/chezmoi/chezmoi.toml` is **generated** by `chezmoi init` from
   `.chezmoi.toml.tmpl`. It is deliberately not a managed target — if it were,
   `chezmoi apply` would overwrite it and wipe `profile`.
-- `dot_asdf/` is **untracked and never deployed**. It was 2074 files / 93MB of
-  node-16.16.0 and flutter binaries captured by mistake; applying it would have
-  created a `~/.asdf` that no current machine has.
-  `run_once_install-packages.sh` installs the runtimes properly. The local copy
-  is left on disk deliberately — `rm -rf dot_asdf` in the source dir when you
-  want the space back.
+- `dot_asdf/` is **untracked and never deployed**, and asdf itself is gone (see
+  Runtimes below). It was 2073 files / 93MB of node-16.16.0 and flutter binaries
+  captured by mistake; applying it would have created a `~/.asdf` that no
+  current machine has. The local copy is left on disk deliberately —
+  `rm -rf dot_asdf` in the source dir when you want the space back.
+- `create_dot_zshrc` uses the `create_` prefix: chezmoi writes `~/.zshrc` only
+  when it does not exist and never touches an existing one. A long-lived machine
+  accumulates additions from nvm, bun, pnpm, pipx and gcloud installers, and
+  rewriting that on every apply would be destructive. Edit it for what a **new**
+  machine starts with, not to push changes to old ones.
 - `agents/` is the source tree for the Claude agent definitions, tracked but
   never deployed. `agents/sync.sh` renders it into `~/.claude` and into
   `dot_claude/`. `.chezmoiignore` stops it landing as `~/agents`.
@@ -120,5 +124,25 @@ On the new machine, before running the init one-liner:
 4. Quit Terminal, then grant it Full Disk Access in System Settings →
    Privacy & Security → Full Disk Access.
 
-Afterwards, restart. `run_once_install-packages.sh` handles Rosetta, `brew
-bundle --global`, asdf runtimes, the Xcode license and `spctl`.
+Afterwards, restart. `run_once_after_install-packages.sh` handles Rosetta, `brew
+bundle --global`, `mise install`, the Xcode license and `spctl`. The `after_`
+prefix matters: it guarantees `~/.config/mise/config.toml` is on disk before
+`mise install` reads it.
+
+## Runtimes
+
+**mise**, not asdf. node, python and ruby are pinned in
+`dot_config/mise/config.toml` → `~/.config/mise/config.toml`, and
+`mise install` in the bootstrap script materialises exactly those versions, so
+machines set up months apart don't drift.
+
+```sh
+mise use -g node@22                          # change the global pin
+chezmoi add ~/.config/mise/config.toml       # capture it back into the repo
+```
+
+`idiomatic_version_file_enable_tools = ["node"]` is set, so repos with a
+`.nvmrc` or `.node-version` still resolve correctly without a `mise.toml`.
+
+Shell activation is `eval "$(mise activate zsh)"`. It is in `create_dot_zshrc`
+for new machines; existing machines already have it.
