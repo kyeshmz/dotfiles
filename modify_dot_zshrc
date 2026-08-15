@@ -35,6 +35,21 @@ export PATH="$PATH:$HOME/.pub-cache/bin"
 
 autoload -Uz compinit && compinit
 
+# OpenCode's websearch tool only exists when this is set (or when on the
+# opencode provider, which we are not). The research scouts search-first;
+# without it they have webfetch and no way to find a URL to fetch, and the
+# failure is quiet. See dot_config/opencode/README.md.
+export OPENCODE_ENABLE_EXA=1
+
+# opencode2 (the v2/next build in ~/.opencode/bin) gets the same guarantee
+# per-invocation, so websearch stays on even if the export above ever goes.
+opencode2() { OPENCODE_ENABLE_EXA=1 command opencode2 "$@"; }
+
+# The self-maintaining Obsidian vault. Claude Code has to start inside it for the
+# vault's CLAUDE.md schema to load, so this does both steps. Args pass through:
+# `wiki -p '/lint'` runs a health check without opening a session.
+wiki() { cd "$HOME/Documents/personal/llm-wiki" && claude "$@"; }
+
 # Keys and tokens. Untracked and chezmoi-ignored, so nothing here reaches the
 # repo. Guarded so a machine that has not set it up yet still gets a working
 # shell. Copy dot_config/zsh/secrets.zsh.example to seed it.
