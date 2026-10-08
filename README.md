@@ -3,6 +3,23 @@
 Managed with [chezmoi](https://www.chezmoi.io/). Source of truth is this repo;
 `~` is the build output.
 
+## Quick start
+
+Clone the repository, then run the root installer. It installs chezmoi when
+needed, configures the selected profile, enables the repository's secret scan,
+and applies the managed files:
+
+```sh
+git clone https://github.com/kyeshmz/dotfiles.git ~/.dotfiles
+cd ~/.dotfiles
+./install                    # claude profile (the safe default)
+./install full               # complete macOS setup
+./install claude --dry-run   # preview without writing anything
+```
+
+Run `./install --help` for the available profiles. Re-run it to switch profiles
+or apply the latest repository state.
+
 ## Profiles
 
 Not every machine wants the whole setup — some only need the Claude Code agent
@@ -70,8 +87,8 @@ Omit `--promptChoice` entirely and chezmoi asks, defaulting to `claude`.
 ### Existing machine
 
 ```sh
-.bootstrap/init.sh claude            # or: full
-.bootstrap/init.sh claude --dry-run  # show what would change first
+./install claude            # or: ./install full
+./install claude --dry-run  # show what would change first
 ```
 
 The script installs chezmoi if it is missing, clones the repo if the source dir
@@ -114,6 +131,40 @@ runs `git add .` across the whole source tree — so it will sweep up any
 unrelated pending changes and push them. Either commit deliberately first, or
 write files into the source tree directly and commit by hand.
 
+## OpenCode config
+
+`dot_config/opencode/opencode.json.tmpl` renders to
+`~/.config/opencode/opencode.json` (model providers, model disables, MCP
+servers), and `dot_local/private_share/opencode/private_*.json.tmpl` render to
+`~/.local/share/opencode/auth.json` and `mcp-auth.json` (provider API keys and
+OAuth tokens), mode 600.
+
+Every secret — the three MCP tokens embedded in `opencode.json` and the two
+auth files — lives only in the Bitwarden item `opencode` and is read at apply
+time through chezmoi's `bitwardenFields`. No secret value ever enters the
+source state, which is what makes this safe in a public repo.
+
+```sh
+export BW_SESSION=$(bw unlock --raw)   # required by both directions
+
+opencode/sync.sh push   # after changing providers/keys/MCP on this machine:
+                        # refresh the templates and upload the secrets to
+                        # Bitwarden, then commit what it wrote
+opencode/sync.sh pull   # apply the repo state to ~/.config/opencode and
+                        # ~/.local/share/opencode (chezmoi apply)
+```
+
+On a new machine: log in and unlock `bw`, run `opencode/sync.sh pull`, done.
+Note that opencode rotates the OAuth tokens in `auth.json` as they expire —
+re-run `push` when that happens or other machines will pull stale tokens.
+
+Skills do not travel by chezmoi: `wer` and `kyeshmzgmk` are sshable Linux
+boxes with no chezmoi checkout, so `opencode/sync-skills.sh` rsyncs the live
+`~/.config/opencode/skills` tree to both boxes, into both their opencode and
+Claude skill dirs. Run it after adding or updating a synced skill; `--check`
+verifies without writing. The sync set is the `SKILLS` list at the top of the
+script — append new skill names there.
+
 ## Layout notes
 
 - `.chezmoiignore` is a template. Its patterns match **target** paths
@@ -134,6 +185,10 @@ write files into the source tree directly and commit by hand.
 - `agents/` is the source tree for the Claude agent definitions, tracked but
   never deployed. `agents/sync.sh` renders it into `~/.claude` and into
   `dot_claude/`. `.chezmoiignore` stops it landing as `~/agents`.
+- `opencode/` is the same pattern for opencode: tracked but never deployed.
+  `opencode/sync.sh` renders `~/.config/opencode/opencode.json` and the
+  `~/.local/share/opencode` auth files from templates plus the Bitwarden item
+  `opencode`. See OpenCode config above.
 
 ## Leaving the old machine
 
@@ -199,6 +254,15 @@ $EDITOR ~/.config/zsh/secrets.zsh
 variables with no values. The values themselves do not sync — on a new machine
 you re-fill them from your password manager. `bw` (Bitwarden) is installed and in
 both Brewfiles if you later want chezmoi to template them in at apply time.
+
+They sync through Bitwarden instead — `./secrets.sh pull` (vault unlocked)
+regenerates `~/.config/zsh/secrets.zsh` from the Bitwarden item `secrets`,
+which holds one custom field per variable: field name is the lowercase env name
+(`anthropic_api_key` for `ANTHROPIC_API_KEY`). `pull` exports every non-empty
+field it finds, so new keys need no script change; `./secrets.sh push` uploads
+hand edits back. Together with `opencode/sync.sh pull` this authenticates every
+harness — Claude Code and anything else reading env via the sourced file,
+OpenCode via `auth.json`/`mcp-auth.json` — in one pass on a new machine.
 
 A `pre-commit` hook backstops all of this, because `autoCommit` + `autoPush` mean
 a wrong `chezmoi add` commits *and* pushes before you can react. It scans added
